@@ -1,0 +1,10 @@
+{
+  "walker": {
+    "log_dirs": [
+      "/dir1",
+      "/dir2"
+    ],
+    "max_discovery_workers": 10    
+  },
+  "discovered_files_channel_size" : 500
+}
