@@ -1,14 +1,17 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"log-ingestion/config"
 	"log-ingestion/workers/directorywalker"
+	"os/signal"
 	"sync"
+	"syscall"
 )
 
-func run() error {
+func run(ctx context.Context) error {
 	cfg, err := config.Load("config.json")
 	if err != nil {
 		return fmt.Errorf("config load error: %w", err)
@@ -31,16 +34,16 @@ func run() error {
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			if err := directorywalker.Walk(dir, discoveredFiles); err != nil {
+			if err := directorywalker.Walk(ctx, dir, discoveredFiles); err != nil {
 				log.Printf("walker error for %s: %v", dir, err)
 			}
 		}(folder)
 	}
 
-	// Close the channel after all walkers complete
+	// Close the channel after all walkers complete or context is cancelled
 	go func() {
+		defer close(discoveredFiles)
 		wg.Wait()
-		close(discoveredFiles)
 	}()
 
 	// TODO: start ingestion workers that consume discoveredFiles
@@ -49,7 +52,11 @@ func run() error {
 }
 
 func main() {
-	if err := run(); err != nil {
+	// Create a root context with signal handling for graceful shutdown
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
+
+	if err := run(ctx); err != nil {
 		log.Fatalf("application failed: %v", err)
 	}
 }
