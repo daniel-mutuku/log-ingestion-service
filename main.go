@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"log"
 	"log-ingestion/config"
+	"log-ingestion/internal/types"
+	"log-ingestion/workers/aggregration"
 	"log-ingestion/workers/directorywalker"
+	"log-ingestion/workers/ingestion"
 	"os/signal"
 	"sync"
 	"syscall"
@@ -17,20 +20,25 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("config load error: %w", err)
 	}
 
-	discoveredFiles := make(chan directorywalker.LogFile, cfg.DiscoveredFilesChannelSize)
+	// Stage 1: Discovery
+	discoveredFiles := make(chan types.LogFile, cfg.DiscoveredFilesChannelSize)
 
-	// Semaphore to limit the number of concurrent directory walkers
+	// Stage 2: Processing
+	logCountsChannel := make(chan types.LogCounts, cfg.ProcessedLogCountChannelSize)
+
+	// -----------------------------
+	// DIRECTORY WALKERS
+	// -----------------------------
+	var walkerWg sync.WaitGroup
 	sem := make(chan struct{}, cfg.Walker.MaxDiscoveryWorkers)
 
-	var wg sync.WaitGroup
-
 	for _, folder := range cfg.Walker.LogDirs {
-		wg.Add(1)
+		walkerWg.Add(1)
 
 		go func(dir string) {
-			defer wg.Done()
+			defer walkerWg.Done()
 
-			// Acquire a slot in the worker pool
+			// acquire slot
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
@@ -40,13 +48,46 @@ func run(ctx context.Context) error {
 		}(folder)
 	}
 
-	// Close the channel after all walkers complete or context is cancelled
+	// Close discoveredFiles AFTER walkers finish
 	go func() {
-		defer close(discoveredFiles)
-		wg.Wait()
+		walkerWg.Wait()
+		close(discoveredFiles)
 	}()
 
-	// TODO: start ingestion workers that consume discoveredFiles
+	// -----------------------------
+	//  INGESTION WORKERS
+	// -----------------------------
+	var ingestWg sync.WaitGroup
+
+	for i := 0; i < cfg.Ingestion.MaxIngestionWorkers; i++ {
+		ingestWg.Add(1)
+
+		go func() {
+			defer ingestWg.Done()
+
+			if err := ingestion.Ingest(ctx, discoveredFiles, logCountsChannel); err != nil {
+				log.Printf("ingestion error: %v", err)
+			}
+		}()
+	}
+
+	// Close logCountsChannel AFTER ingestion workers finish
+	go func() {
+		ingestWg.Wait()
+		close(logCountsChannel)
+	}()
+
+	// -----------------------------
+	// AGGREGATOR
+	// -----------------------------
+	totalLogCounts := aggregration.Aggregate(ctx,logCountsChannel)
+	for service,serviceCount := range(totalLogCounts){
+		fmt.Printf("%s Error Counts\n",service)
+		for errorLevel,errorCount := range(serviceCount){
+			fmt.Printf("%s: %v\n",errorLevel,errorCount)
+		}
+		fmt.Printf("---------------------\n")
+	}
 
 	return nil
 }

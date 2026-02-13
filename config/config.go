@@ -10,8 +10,10 @@ import (
 // It is loaded from a JSON file and passed to all services
 // that require runtime configuration.
 type Config struct {
-	Walker WalkerConfig `json:"walker"`
-	DiscoveredFilesChannelSize int `json:"discovered_files_channel_size"`
+	Walker                       WalkerConfig    `json:"walker"`
+	Ingestion                    IngestionConfig `json:"ingestion"`
+	DiscoveredFilesChannelSize   int             `json:"discovered_files_channel_size"`
+	ProcessedLogCountChannelSize int             `json:"processed_log_count_channel_size"`
 }
 
 // WalkerConfig contains configuration options for the
@@ -20,6 +22,13 @@ type Config struct {
 type WalkerConfig struct {
 	LogDirs             []string `json:"log_dirs"`
 	MaxDiscoveryWorkers int      `json:"max_discovery_workers"`
+}
+
+// IngestionConfig contains configuration options for the
+// file ingestion service responsible for
+// processing discovered log files.
+type IngestionConfig struct {
+	MaxIngestionWorkers int `json:"max_ingestion_workers"`
 }
 
 // Load reads the configuration file from disk, unmarshals
