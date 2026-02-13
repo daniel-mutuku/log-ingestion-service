@@ -1,10 +1,14 @@
 {
   "walker": {
     "log_dirs": [
-      "/dir1",
-      "/dir2"
+      ".\\temp-logs\\serviceA",
+      ".\\temp-logs\\serviceB"
     ],
     "max_discovery_workers": 10    
   },
-  "discovered_files_channel_size" : 500
+  "ingestion": {
+    "max_ingestion_workers": 10    
+  },
+  "discovered_files_channel_size" : 500,
+  "processed_log_count_channel_size": 500
 }
